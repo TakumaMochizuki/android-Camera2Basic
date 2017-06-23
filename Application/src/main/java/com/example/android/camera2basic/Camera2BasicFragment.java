@@ -40,6 +40,7 @@ import android.hardware.camera2.CameraMetadata;
 import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.CaptureResult;
 import android.hardware.camera2.TotalCaptureResult;
+import android.hardware.camera2.params.Face;
 import android.hardware.camera2.params.StreamConfigurationMap;
 import android.media.Image;
 import android.media.ImageReader;
@@ -70,6 +71,8 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+
+import static java.util.Collections.max;
 
 public class Camera2BasicFragment extends Fragment
         implements View.OnClickListener, FragmentCompat.OnRequestPermissionsResultCallback {
@@ -290,6 +293,21 @@ public class Camera2BasicFragment extends Fragment
             switch (mState) {
                 case STATE_PREVIEW: {
                     // We have nothing to do when the camera preview is working normally.
+                    Integer mode = result.get(CaptureResult.STATISTICS_FACE_DETECT_MODE);
+                    Face[] faces = result.get(CaptureResult.STATISTICS_FACES);
+                    if(faces != null && mode != null) {
+//                        FLog.v(TAG, "face: " + faces.length + " mode: " + mode);
+                        if (faces.length > 0) {
+                            Face face = faces[0];
+                            Log.v(TAG, "FACE: "
+                                    + "\ncenter X: " + face.getBounds().centerX()
+                                    + "\ncenter Y: " + face.getBounds().centerY()
+                                    + "\nleft: " + face.getBounds().left
+                                    + "\ntop: " + face.getBounds().top
+                                    + "\nright: " + face.getBounds().right
+                                    + "\nbottom: " + face.getBounds().bottom);
+                        }
+                    }
                     break;
                 }
                 case STATE_WAITING_LOCK: {
@@ -407,12 +425,14 @@ public class Camera2BasicFragment extends Fragment
         if (bigEnough.size() > 0) {
             return Collections.min(bigEnough, new CompareSizesByArea());
         } else if (notBigEnough.size() > 0) {
-            return Collections.max(notBigEnough, new CompareSizesByArea());
+            return max(notBigEnough, new CompareSizesByArea());
         } else {
             Log.e(TAG, "Couldn't find any suitable preview size");
             return choices[0];
         }
     }
+
+    private int faceDetectMode;
 
     public static Camera2BasicFragment newInstance() {
         return new Camera2BasicFragment();
@@ -508,8 +528,26 @@ public class Camera2BasicFragment extends Fragment
                     continue;
                 }
 
+                // This line is new for face detection
+                int[] faceDetects = characteristics.get(CameraCharacteristics.STATISTICS_INFO_AVAILABLE_FACE_DETECT_MODES);
+                int maxFaceDetect = characteristics.get(CameraCharacteristics.STATISTICS_INFO_MAX_FACE_COUNT);
+
+                if (faceDetects.length>0) {
+                    List<Integer> fdList = new ArrayList<>();
+                    for (int faceDetect : faceDetects) {
+                        fdList.add(faceDetect);
+                        Log.d(TAG, "setUpCameraOutputs: FD type:" + faceDetect);
+                    }
+                    Log.d(TAG, "setUpCameraOutputs: FD count" + maxFaceDetect);
+
+                    if (maxFaceDetect > 0) {
+//                        mFaceDetectSupported = true;
+                        faceDetectMode = max(fdList);
+                    }
+                }
+
                 // For still image captures, we use the largest available size.
-                Size largest = Collections.max(
+                Size largest = max(
                         Arrays.asList(map.getOutputSizes(ImageFormat.JPEG)),
                         new CompareSizesByArea());
                 mImageReader = ImageReader.newInstance(largest.getWidth(), largest.getHeight(),
@@ -705,6 +743,8 @@ public class Camera2BasicFragment extends Fragment
                                 // Auto focus should be continuous for camera preview.
                                 mPreviewRequestBuilder.set(CaptureRequest.CONTROL_AF_MODE,
                                         CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
+                                // Face detection mode setting
+                                mPreviewRequestBuilder.set(CaptureRequest.STATISTICS_FACE_DETECT_MODE, faceDetectMode);
                                 // Flash is automatically enabled when necessary.
                                 setAutoFlash(mPreviewRequestBuilder);
 
